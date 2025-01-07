@@ -25,7 +25,7 @@ namespace
 	void KeyCallback(GLFWwindow* window, int key, int scancode, int action, int mods)
 	{
 		WindowManager::WindowDatum* const instance = static_cast<WindowManager::WindowDatum*>(glfwGetWindowUserPointer(window));
-		instance->input_handler.FeedKeyboard(key, scancode, action);
+		instance->input_handler.FeedKeyboard(key, scancode, action, mods);
 
 #ifdef _WIN32
 		bool should_close = (key == GLFW_KEY_F4) && (mods == GLFW_MOD_ALT);
@@ -46,7 +46,7 @@ namespace
 	void MouseCallback(GLFWwindow* window, int button, int action, int mods)
 	{
 		WindowManager::WindowDatum* const instance = static_cast<WindowManager::WindowDatum*>(glfwGetWindowUserPointer(window));
-		instance->input_handler.FeedMouseButtons(button, action);
+		instance->input_handler.FeedMouseButtons(button, action, mods);
 	}
 
 	void CursorCallback(GLFWwindow* window, double x, double y)
@@ -94,9 +94,6 @@ GLFWwindow* WindowManager::CreateGLFWWindow(std::string const& title, WindowDatu
 	glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 #endif
 	glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-#if DEBUG_LEVEL >= 2
-	glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
-#endif
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, default_opengl_major_version);
 	glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, default_opengl_minor_version);
 
@@ -167,27 +164,13 @@ GLFWwindow* WindowManager::CreateGLFWWindow(std::string const& title, WindowDatu
 		glEnable(GL_DEBUG_OUTPUT);
 		glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
 		glDebugMessageCallback(utils::opengl::debug::opengl_error_callback, nullptr);
-		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_FALSE);
 #endif
 #if DEBUG_LEVEL == 2
-		// Enable all messages of severity medium or higher.
+		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_FALSE);
 		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_MEDIUM, 0, nullptr, GL_TRUE);
 		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_HIGH, 0, nullptr, GL_TRUE);
 #elif DEBUG_LEVEL == 3
-		// Enable all messages.
-		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
-
-		// Comment out the next two calls to get scoped debug messages in the logs.
-		// Note that it can come at a significant performance cost.
-		glDebugMessageControl(GL_DONT_CARE, GL_DEBUG_TYPE_PUSH_GROUP, GL_DONT_CARE, 0, nullptr, GL_FALSE);
-		glDebugMessageControl(GL_DONT_CARE, GL_DEBUG_TYPE_POP_GROUP, GL_DONT_CARE, 0, nullptr, GL_FALSE);
-#endif
-#if DEBUG_LEVEL >= 2
-		// Disable certain messages:
-		std::array<GLuint, 1> api_other_ids = {
-			131185u, // "Buffer detailed info: Buffer object Y will use VIDEO memory as the source for buffer object operations."
-		};
-		glDebugMessageControl(GL_DEBUG_SOURCE_API, GL_DEBUG_TYPE_OTHER, GL_DONT_CARE, static_cast<GLsizei>(api_other_ids.size()), api_other_ids.data(), GL_FALSE);
+		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, NULL, GL_TRUE);
 #endif
 	}
 	else
@@ -225,11 +208,10 @@ void WindowManager::NewImGuiFrame()
 	ImGui::NewFrame();
 }
 
-void WindowManager::RenderImGuiFrame(bool show_gui)
+void WindowManager::RenderImGuiFrame()
 {
 	ImGui::Render();
-	if (show_gui)
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
 void WindowManager::ToggleFullscreenStatusForWindow(GLFWwindow* const window) noexcept

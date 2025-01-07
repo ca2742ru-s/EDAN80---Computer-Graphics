@@ -21,6 +21,7 @@ target_sources (
 	EDAF80_Assignment1
 	PRIVATE
 		[[assignment1.cpp]]
+		[[assignment1.hpp]]
 		[[CelestialBody.cpp]]
 		[[CelestialBody.hpp]]
 )
@@ -82,10 +83,21 @@ target_sources (
 	EDAF80_Assignment5
 	PRIVATE
 		[[assignment5.hpp]]
-		[[assignment5.cpp]]
+		"assignment5.cpp"
 )
-target_link_libraries (EDAF80_Assignment5 PRIVATE assignment_setup)
+target_link_libraries (EDAF80_Assignment5 PRIVATE assignment_setup parametric_shapes) 
 copy_dlls (EDAF80_Assignment5 "${CMAKE_CURRENT_BINARY_DIR}")
+
+# Assignment 5
+add_executable (EDAF80_Assignment5.2)
+target_sources (
+	EDAF80_Assignment5.2
+	PRIVATE
+		[[assignment5.2.hpp]]
+		"assignment5.2.cpp"
+)
+target_link_libraries (EDAF80_Assignment5.2 PRIVATE assignment_setup parametric_shapes) 
+copy_dlls (EDAF80_Assignment5.2 "${CMAKE_CURRENT_BINARY_DIR}")
 
 
 install (
@@ -95,5 +107,6 @@ install (
 		EDAF80_Assignment3
 		EDAF80_Assignment4
 		EDAF80_Assignment5
+		EDAF80_Assignment5.2
 	DESTINATION [[bin]]
 )

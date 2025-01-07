@@ -3,7 +3,6 @@
 #include "various.hpp"
 
 #include <cassert>
-#include <cstring>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -93,32 +92,6 @@ getStringForSeverity( GLenum severity )
 		return("");
 	}
 }
-void
-beginDebugGroup(std::string const& message, GLuint id)
-{
-	if (!isSupported())
-		return;
-
-	glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, id, static_cast<GLsizei>(message.size()), message.data());
-}
-
-void
-endDebugGroup()
-{
-	if (!isSupported())
-		return;
-
-	glPopDebugGroup();
-}
-
-void
-nameObject(GLenum type, GLuint id, std::string const& label)
-{
-	if (!isSupported())
-		return;
-
-	glObjectLabel(type, id, static_cast<GLsizei>(label.size()), label.data());
-}
 
 void
 #ifdef _WIN32
@@ -129,14 +102,8 @@ opengl_error_callback( GLenum source, GLenum type, GLuint id, GLenum severity
                      , void const* /*data*/
                      )
 {
-	if (type == GL_DEBUG_TYPE_PUSH_GROUP) {
-		LogInfo("%s\n{", msg);
+	if (type == GL_DEBUG_TYPE_PUSH_GROUP || type == GL_DEBUG_TYPE_POP_GROUP)
 		return;
-	}
-	else if (type == GL_DEBUG_TYPE_POP_GROUP) {
-		LogInfo("}");
-		return;
-	}
 
 	std::ostringstream oss;
 	oss << "[id: " << id << "] of type " << getStringForType(type)
@@ -148,7 +115,16 @@ opengl_error_callback( GLenum source, GLenum type, GLuint id, GLenum severity
 	switch (severity) {
 	case GL_DEBUG_SEVERITY_NOTIFICATION:
 	case GL_DEBUG_SEVERITY_LOW: // fallthrough
-		LogInfo(c_msg);
+		if (id == 131185) // Will use VIDEO memory
+			break;
+		else if (id == 131204) { // Texture cannot be used for texture mapping
+			// Discard if this is about the “default texture”, i.e. ID 0.
+			if (s_msg.find("The texture object (0)") != std::string::npos)
+				break;
+			else
+				LogInfo(c_msg);
+		} else
+			LogInfo(c_msg);
 		break;
 	case GL_DEBUG_SEVERITY_MEDIUM:
 		LogWarning(c_msg);
@@ -175,30 +151,28 @@ source_and_build_shader(GLuint id, std::string const& source)
 	glCompileShader(id);
 	GLint state = GLint(0);
 	glGetShaderiv(id, GL_COMPILE_STATUS, &state);
-	auto const wasCompilationSuccessful = state != GL_FALSE;
+	if (state == GL_FALSE)
+	{
+		GLint log_length = GLint(0);
+		glGetShaderiv(id, GL_INFO_LOG_LENGTH, &log_length);
 
-	GLint log_length = GLint(0);
-	glGetShaderiv(id, GL_INFO_LOG_LENGTH, &log_length);
-
-	if (log_length > 0) {
-		std::unique_ptr<GLchar[]> log = std::make_unique<GLchar[]>(static_cast<size_t>(log_length));
-		glGetShaderInfoLog(id, log_length, NULL, log.get());
-
-		std::ostringstream oss;
-		oss << "Shader compiling log:" << std::endl
-		    << log.get() << std::endl;
-		auto const s_msg = oss.str();
-		auto const c_msg = s_msg.c_str();
-
-		if (wasCompilationSuccessful)
-			LogInfo("%s", c_msg);
-		else
+		if (log_length > 0) {
+			std::unique_ptr<GLchar[]> log = std::make_unique<GLchar[]>(static_cast<size_t>(log_length));
+			glGetShaderInfoLog(id, log_length, NULL, log.get());
+			std::ostringstream oss;
+			oss << "Shader compiling error:" << std::endl
+			    << log.get();
+			auto const s_msg = oss.str();
+			auto const c_msg = s_msg.c_str();
 			LogError("%s", c_msg);
-	} else if (!wasCompilationSuccessful) {
-		LogError("Shader failed to compile but no log available.");
+		} else {
+			LogError("Shader failed to compile but no log available.");
+		}
+
+		return false;
 	}
 
-	return wasCompilationSuccessful;
+	return true;
 }
 
 GLuint
@@ -221,30 +195,23 @@ link_program(GLuint id)
 	glLinkProgram(id);
 	GLint state = GLint(0);
 	glGetProgramiv(id, GL_LINK_STATUS, &state);
-	auto const wasLinkingSuccessful = state != GL_FALSE;
-
-	GLint log_length = GLint(0);
-	glGetProgramiv(id, GL_INFO_LOG_LENGTH, &log_length);
-
-	if (log_length > 0) {
+	if (state == GL_FALSE)
+	{
+		GLint log_length = GLint(0);
+		glGetProgramiv(id, GL_INFO_LOG_LENGTH, &log_length);
 		std::unique_ptr<GLchar[]> log = std::make_unique<GLchar[]>(static_cast<size_t>(log_length));
 		glGetProgramInfoLog(id, log_length, NULL, log.get());
-
 		std::ostringstream oss;
-		oss << "Program linking log:" << std::endl
-			<< log.get() << std::endl;
+		oss << "Program linking error:" << std::endl
+		    << log.get();
 		auto const s_msg = oss.str();
 		auto const c_msg = s_msg.c_str();
+		LogError("%s", c_msg);
 
-		if (wasLinkingSuccessful)
-			LogInfo("%s", c_msg);
-		else
-			LogError("%s", c_msg);
-	} else if (!wasLinkingSuccessful) {
-		LogError("Program failed to link but no log available.");
+		return false;
 	}
 
-	return wasLinkingSuccessful;
+	return true;
 }
 
 void

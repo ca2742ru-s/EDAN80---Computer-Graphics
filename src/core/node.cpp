@@ -7,20 +7,27 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
-void
-Node::render(glm::mat4 const& view_projection, glm::mat4 const& parent_transform) const
+Node::Node() : _vao(0u), _vertices_nb(0u), _indices_nb(0u), _drawing_mode(GL_TRIANGLES), _has_indices(true), _program(nullptr), _textures(), _transform(), _children()
 {
-	if (_program != nullptr)
-		render(view_projection, parent_transform * _transform.GetMatrix(), *_program, _set_uniforms);
 }
 
 void
-Node::render(glm::mat4 const& view_projection, glm::mat4 const& world, GLuint program, std::function<void (GLuint)> const& set_uniforms) const
+Node::render(glm::mat4 const& WVP, glm::mat4 const& parentTransform) const
+{
+	if (_program != nullptr)
+		render(WVP, parentTransform * _transform.GetMatrix(), *_program, _set_uniforms);
+}
+
+void
+Node::render(glm::mat4 const& WVP, glm::mat4 const& world, GLuint program, std::function<void (GLuint)> const& set_uniforms) const
 {
 	if (_vao == 0u || program == 0u)
 		return;
 
-	utils::opengl::debug::beginDebugGroup(_name);
+	if (utils::opengl::debug::isSupported())
+	{
+		glPushDebugGroup(GL_DEBUG_SOURCE_APPLICATION, 0u, _name.size(), _name.data());
+	}
 
 	glUseProgram(program);
 
@@ -30,7 +37,7 @@ Node::render(glm::mat4 const& view_projection, glm::mat4 const& world, GLuint pr
 
 	glUniformMatrix4fv(glGetUniformLocation(program, "vertex_model_to_world"), 1, GL_FALSE, glm::value_ptr(world));
 	glUniformMatrix4fv(glGetUniformLocation(program, "normal_model_to_world"), 1, GL_FALSE, glm::value_ptr(normal_model_to_world));
-	glUniformMatrix4fv(glGetUniformLocation(program, "vertex_world_to_clip"), 1, GL_FALSE, glm::value_ptr(view_projection));
+	glUniformMatrix4fv(glGetUniformLocation(program, "vertex_world_to_clip"), 1, GL_FALSE, glm::value_ptr(WVP));
 
 	for (size_t i = 0u; i < _textures.size(); ++i) {
 		auto const& texture = _textures[i];
@@ -41,14 +48,6 @@ Node::render(glm::mat4 const& view_projection, glm::mat4 const& world, GLuint pr
 		std::string texture_presence_var_name = "has_" + std::get<0>(texture);
 		glUniform1i(glGetUniformLocation(program, texture_presence_var_name.c_str()), 1);
 	}
-
-	glUniform3fv(glGetUniformLocation(program, "diffuse_colour"), 1, glm::value_ptr(_constants.diffuse));
-	glUniform3fv(glGetUniformLocation(program, "specular_colour"), 1, glm::value_ptr(_constants.specular));
-	glUniform3fv(glGetUniformLocation(program, "ambient_colour"), 1, glm::value_ptr(_constants.ambient));
-	glUniform3fv(glGetUniformLocation(program, "emissive_colour"), 1, glm::value_ptr(_constants.emissive));
-	glUniform1f(glGetUniformLocation(program, "shininess_value"), _constants.shininess);
-	glUniform1f(glGetUniformLocation(program, "index_of_refraction_value"), _constants.indexOfRefraction);
-	glUniform1f(glGetUniformLocation(program, "opacity_value"), _constants.opacity);
 
 	glBindVertexArray(_vao);
 	if (_has_indices)
@@ -67,7 +66,10 @@ Node::render(glm::mat4 const& view_projection, glm::mat4 const& world, GLuint pr
 
 	glUseProgram(0u);
 
-	utils::opengl::debug::endDebugGroup();
+	if (utils::opengl::debug::isSupported())
+	{
+		glPopDebugGroup();
+	}
 }
 
 void
@@ -78,20 +80,12 @@ Node::set_geometry(bonobo::mesh_data const& shape)
 	_indices_nb = static_cast<GLsizei>(shape.indices_nb);
 	_drawing_mode = shape.drawing_mode;
 	_has_indices = shape.ibo != 0u;
-	_name = std::string("Render ") + shape.name;
+	_name = shape.name;
 
 	if (!shape.bindings.empty()) {
 		for (auto const& binding : shape.bindings)
 			add_texture(binding.first, binding.second, GL_TEXTURE_2D);
 	}
-
-	_constants = shape.material;
-}
-
-void
-Node::set_material_constants(bonobo::material_data const& constants)
-{
-	_constants = constants;
 }
 
 void
@@ -104,12 +98,6 @@ Node::set_program(GLuint const* const program, std::function<void (GLuint)> cons
 
 	_program = program;
 	_set_uniforms = set_uniforms;
-}
-
-void
-Node::set_name(std::string const& name)
-{
-	_name = std::string("Render ") + name;
 }
 
 size_t

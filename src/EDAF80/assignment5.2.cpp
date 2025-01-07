@@ -55,8 +55,38 @@ edaf80::Assignment5::run()
 
 	bonobo::mesh_data const& tiefighter = objects.front();
 
+	std::vector<bonobo::mesh_data> const object_crate = bonobo::loadObjects(config::resources_path("Crate/Crate1.obj"));
+	if (object_crate.empty()) {
+		printf("Failed to load the crate geometry: exiting.\n");
+	}
+
+	bonobo::mesh_data const& object_shape_crate = object_crate.front();
+
+
 	// Create the shader programs
 	ShaderProgramManager program_manager;
+	GLuint fallback_shader = 0u;
+	program_manager.CreateAndRegisterProgram("Fallback",
+		{ { ShaderType::vertex, "EDAF80/fallback.vert" },
+		  { ShaderType::fragment, "EDAF80/fallback.frag" } },
+		fallback_shader);
+	if (fallback_shader == 0u) {
+		LogError("Failed to load fallback shader");
+		return;
+	}
+
+	GLuint outlines_shader = 0u;
+	program_manager.CreateAndRegisterProgram("Outlines shader",
+		{ { ShaderType::vertex, "EDAF80/outlines.vert" },
+		  { ShaderType::fragment, "EDAF80/outlines.frag" } },
+		outlines_shader);
+
+	if (outlines_shader == 0u) {
+		LogError("Failed to load Outlines shader");
+		return;
+	}
+
+
 	GLuint celestial_body_shader = 0u;
 	program_manager.CreateAndRegisterProgram("Celestial Shader",
 		{ { ShaderType::vertex, "EDAF80/default.vert" },
@@ -98,19 +128,41 @@ edaf80::Assignment5::run()
 		return;
 	}
 
+	GLuint texture_shader = 0u;
+	program_manager.CreateAndRegisterProgram("Texture",
+		{ { ShaderType::vertex, "EDAF80/texcoord.vert" },
+		  { ShaderType::fragment, "EDAF80/texcoord.frag" } },
+		texture_shader);
+	if (texture_shader == 0u) {
+		LogError("Failed to load torus shader");
+		return;
+	}
+
 	//Set up uniforms sent in to the shader
 	float ellapsed_time_s = 0.0f;
 	auto light_position = glm::vec3(0.0f, 300.0f, 0.0f);
 	auto camera_position = mCamera.mWorld.GetTranslation();
+	const bool outline_color = true;
+	const bool no_outline_color = false;
 
-	auto const sphere_uniforms = [&light_position, &ellapsed_time_s, &camera_position](GLuint program) {
+	auto const object_uniforms = [&light_position, &ellapsed_time_s, &camera_position, &no_outline_color](GLuint program) {
 		glUniform3fv(glGetUniformLocation(program, "light_position"), 1, glm::value_ptr(light_position));
 		glUniform3fv(glGetUniformLocation(program, "camera_position"), 1, glm::value_ptr(camera_position));
 		glUniform1f(glGetUniformLocation(program, "ellapsed_time_s"), ellapsed_time_s);
+		glUniform1i(glGetUniformLocation(program, "outline_color"), no_outline_color ? 1 : 0);
+
 	};
 
-	auto const set_uniforms = [&light_position](GLuint program) {
+	auto const outline_uniforms = [&light_position, &ellapsed_time_s, &camera_position, &outline_color](GLuint program) {
 		glUniform3fv(glGetUniformLocation(program, "light_position"), 1, glm::value_ptr(light_position));
+		glUniform3fv(glGetUniformLocation(program, "camera_position"), 1, glm::value_ptr(camera_position));
+		glUniform1f(glGetUniformLocation(program, "ellapsed_time_s"), ellapsed_time_s);
+		glUniform1i(glGetUniformLocation(program, "outline_color"), outline_color ? 1 : 0);
+	};
+
+	auto const set_uniforms = [&light_position, &camera_position](GLuint program) {
+		glUniform3fv(glGetUniformLocation(program, "light_position"), 1, glm::value_ptr(light_position));
+		glUniform3fv(glGetUniformLocation(program, "camera_position"), 1, glm::value_ptr(camera_position));
 	};
 
 	auto const water_uniforms = [&light_position, &ellapsed_time_s, &camera_position](GLuint program) {
@@ -132,6 +184,8 @@ edaf80::Assignment5::run()
 		true);
 
 	auto player_map_id = bonobo::loadTexture2D(config::resources_path("cubemaps/bkg/red/bkg1_back6.png"), true);
+
+	auto grid_map_id = bonobo::loadTexture2D(config::resources_path("cubemaps/white-bathroom-tiles.jpg"), true);
 
 	//
 	// Todo: Insert the creation of other shader programs.
@@ -156,11 +210,36 @@ edaf80::Assignment5::run()
 		return;
 	}
 
-	auto const skybox_shape = parametric_shapes::createSphere(350.0f, 1000u, 1000u);
+	auto const skybox_shape = parametric_shapes::createSphere(100.0f, 1000u, 1000u);
 	if (skybox_shape.vao == 0u) {
 		LogError("Failed to retrieve the mesh for the skybox");
 		return;
 	}
+
+	auto const floor_shape = parametric_shapes::createQuad(10, 25, 100, 100);
+	if (floor_shape.vao == 0u) {
+		LogError("Failed to retrieve the mesh for the floor");
+		return;
+	}
+
+	auto const wall_shape = parametric_shapes::createQuad(10, 25, 100, 100);
+	if (wall_shape.vao == 0u) {
+		LogError("Failed to retrieve the mesh for the wall");
+		return;
+	}
+
+	auto const object_shape_sphere = parametric_shapes::createSphere(2.0f, 100u, 100u);
+	if (sphere_shape.vao == 0u) {
+		LogError("Failed to retrieve the mesh for the skybox");
+		return;
+	}
+
+	auto const object_shape_cube = parametric_shapes::createSphere(2.0f, 100u, 100u);
+	if (sphere_shape.vao == 0u) {
+		LogError("Failed to retrieve the mesh for the skybox");
+		return;
+	}
+
 
 	//
 	// Todo: Load your geometry
@@ -223,16 +302,53 @@ edaf80::Assignment5::run()
 
 	Node skybox;
 	skybox.set_geometry(skybox_shape);
-	skybox.set_program(&skybox_shader, set_uniforms);
+	skybox.set_program(&fallback_shader, set_uniforms);
 	skybox.add_texture("skybox", my_cube_map_id, GL_TEXTURE_CUBE_MAP);
-	skybox.get_transform().SetTranslate(glm::vec3(0, 0, 0));
+	//skybox.get_transform().SetTranslate(glm::vec3(0, 0, 0));
 
 	Node player;
 	player.set_geometry(tiefighter);
 	player.set_program(&celestial_body_shader);
-	player.add_texture("diffuse_texture", player_map_id, GL_TEXTURE_2D);
+	//player.add_texture("diffuse_texture", grid_map_id , GL_TEXTURE_2D);
 	player.get_transform().Scale(0.005);
-	player.get_transform().Rotate(glm::radians(90.0f), player.get_transform().GetLeft());
+
+	Node wall1;
+	wall1.set_geometry(wall_shape);
+	wall1.set_program(&fallback_shader);
+	//wall1.add_texture("diffuse_texture", grid_map_id, GL_TEXTURE_2D);
+	wall1.get_transform().RotateZ(glm::pi<float>()/2);
+
+	Node wall2;
+	wall2.set_geometry(wall_shape);
+	wall2.set_program(&fallback_shader);
+	//wall2.add_texture("diffuse_texture", grid_map_id, GL_TEXTURE_2D);
+	//wall2.get_transform().RotateZ(glm::pi<float>()/2);
+	//wall2.get_transform().RotateY(glm::pi<float>()/2);
+	wall2.get_transform().Scale(glm::vec3(1, 1, 1/2.5));
+	wall2.get_transform().RotateX(-glm::pi<float>()/2);
+
+	Node floor;
+	floor.set_geometry(floor_shape);
+	floor.set_program(&fallback_shader);
+	floor.get_transform().RotateZ(glm::pi<float>());
+	floor.get_transform().Translate(glm::vec3(9.89, 0, 0));
+	//floor.add_texture("diffuse_texture", grid_map_id, GL_TEXTURE_2D);
+
+	Node node_object_sphere;
+	node_object_sphere.set_geometry(object_shape_sphere);
+	node_object_sphere.set_program(&outlines_shader, object_uniforms);
+	node_object_sphere.get_transform().Translate(glm::vec3(5, 5, 10));
+
+	Node node_object_crate;
+	node_object_crate.set_geometry(object_shape_crate);
+	node_object_crate.set_program(&outlines_shader, object_uniforms);
+	node_object_crate.get_transform().Translate(glm::vec3(5, 5, 20));
+
+	Node node_object_crate_outline;
+	node_object_crate_outline.set_geometry(object_shape_crate);
+	node_object_crate_outline.set_program(&outlines_shader, outline_uniforms);
+	node_object_crate_outline.get_transform().Translate(glm::vec3(5, 5, 20));
+	node_object_crate_outline.get_transform().Scale(1.1);
 
 
 
@@ -246,7 +362,7 @@ edaf80::Assignment5::run()
 	// Enable face culling to improve performance:
 	//glEnable(GL_CULL_FACE);
 	//glCullFace(GL_FRONT);
-	glCullFace(GL_BACK);
+	//glCullFace(GL_BACK);
 
 
 	auto lastTime = std::chrono::high_resolution_clock::now();
@@ -263,12 +379,15 @@ edaf80::Assignment5::run()
 	std::array<float, 10> scores = { 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 };
 	int score = 0;
 
-	player.get_transform().SetTranslate(glm::vec3(0, 0, 340));
+	player.get_transform().SetTranslate(glm::vec3(0, 2, 0));
 
-	glm::vec3 direction = player.get_transform().GetTranslation() + glm::vec3(0.0, 0.0, 1.0);
+	glm::vec3 direction = player.get_transform().GetTranslation() + glm::vec3(0.0, 0.0, 0.0);
 	glm::vec3 position = player.get_transform().GetTranslation();
 
-	mCamera.mWorld.SetTranslate(glm::vec3(0, 0, 350));
+	mCamera.mWorld.SetTranslate(glm::vec3(25, 15, 25));
+	mCamera.mWorld.RotateX(-0.46);
+	mCamera.mWorld.RotateY(1.1);
+	
 
 	while (!glfwWindowShouldClose(window)) {
 		auto const nowTime = std::chrono::high_resolution_clock::now();
@@ -302,7 +421,7 @@ edaf80::Assignment5::run()
 
 		}
 
-		if ((inputHandler.GetKeycodeState(GLFW_KEY_A) & PRESSED)) {
+		if ((inputHandler.GetKeycodeState(GLFW_KEY_A) & PRESSED) && std::chrono::duration<float>(deltaTimeUs).count() == 1000) {
 			yaw -= 0.5;
 
 		}
@@ -358,13 +477,13 @@ edaf80::Assignment5::run()
 		player.get_transform().LookAt((playerPos + direction), glm::vec3(0, 1, 0));
 		player.get_transform().Rotate(glm::radians(90.0f), player.get_transform().GetLeft());
 
-		mCamera.mWorld.SetTranslate(player.get_transform().GetTranslation() + camRotation);
-		mCamera.mWorld.LookAt(playerPos + direction, glm::vec3(0, 1, 0));
+		//mCamera.mWorld.SetTranslate(player.get_transform().GetTranslation() + camRotation);
+		//mCamera.mWorld.LookAt(floor.get_transform().GetFront());
 
 
-		/*
+		
 		mCamera.Update(deltaTimeUs, inputHandler);
-		*/
+		
 		if (distance(player.get_transform().GetTranslation(), glm::vec3(0, 0, 0)) > 350) {
 			player.get_transform().SetTranslate(glm::vec3(0, 0, 340));
 			speed = 0;
@@ -416,14 +535,20 @@ edaf80::Assignment5::run()
 			// Todo: Render all your geometry here.
 			//
 
-			skybox.render(mCamera.GetWorldToClipMatrix());
-			player.render(mCamera.GetWorldToClipMatrix());
+			//skybox.render(mCamera.GetWorldToClipMatrix());
+			//player.render(mCamera.GetWorldToClipMatrix());
+			floor.render(mCamera.GetWorldToClipMatrix());
+			wall1.render(mCamera.GetWorldToClipMatrix());
+			wall2.render(mCamera.GetWorldToClipMatrix());
+			node_object_sphere.render(mCamera.GetWorldToClipMatrix());
+			node_object_crate.render(mCamera.GetWorldToClipMatrix());
+			//node_object_crate_outline.render(mCamera.GetWorldToClipMatrix());
 
 
 			for (int i = 0; i < torus_points.size(); i++) {
 				if (states[i] == true) {
-					torus_points[i].render(mCamera.GetWorldToClipMatrix());
-					control_points[i].render(mCamera.GetWorldToClipMatrix());
+					//torus_points[i].render(mCamera.GetWorldToClipMatrix());
+					//control_points[i].render(mCamera.GetWorldToClipMatrix());
 				}
 				if (distance(player.get_transform().GetTranslation(), control_points[i].get_transform().GetTranslation()) < 13) {
 					control_points[i].get_transform().Scale(0.9 * scales[i]);
@@ -450,6 +575,7 @@ edaf80::Assignment5::run()
 			score += scores[i];
 		}
 
+		camera_position = mCamera.mWorld.GetTranslation();
 
 		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
@@ -473,7 +599,6 @@ edaf80::Assignment5::run()
 		glfwSwapBuffers(window);
 
 
-		camera_position = mCamera.mWorld.GetTranslation();
 	}
 }
 

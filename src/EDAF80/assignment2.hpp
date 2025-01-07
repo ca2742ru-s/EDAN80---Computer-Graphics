@@ -23,7 +23,7 @@ namespace edaf80
 		//!
 		//! It will release the bonobo modules initialised by the
 		//! constructor, as well as the window.
-		~Assignment2();
+		~Assignment2() = default;
 
 		//! \brief Contains the logic of the assignment, along with the
 		//! render loop.
@@ -33,6 +33,6 @@ namespace edaf80
 		FPSCameraf     mCamera;
 		InputHandler   inputHandler;
 		WindowManager& mWindowManager;
-		GLFWwindow*    window;
+		GLFWwindow* window;
 	};
 }
